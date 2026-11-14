@@ -30,6 +30,7 @@
  .foot{font-size:12px;line-height:1.8}
 }
 @media print{.scroll-hint{display:none}}
+.pair{background:#edf3ee;display:flex;flex-direction:column;gap:3px;align-items:stretch;justify-content:center;padding:4px}.pair span{border-radius:4px;font-size:13px;padding:2px}.choices button[aria-pressed="true"]{outline:3px solid #246f52;outline-offset:-3px}.choices button:disabled{opacity:.35;cursor:not-allowed}.save{background:#246f52;color:white}.selection-note{font-size:14px}
 </style>
 </head>
 <body><main>
@@ -40,9 +41,9 @@
 <div class="legend" id="legend" aria-live="polite"></div>
 <p class="scroll-hint" id="scroll-hint">↔ เลื่อนตารางซ้าย–ขวาเพื่อดูครบ 7 วัน · แตะช่องเพื่อเลือกชื่อ</p>
 <div class="table-wrap" tabindex="0" role="region" aria-label="ตารางรายสัปดาห์ เลื่อนเพื่อดูวันและเวลา"><table aria-label="ตารางเวลาทำงานรายสัปดาห์"><thead id="head"></thead><tbody id="body"></tbody></table></div>
-<p class="foot" id="status" role="status">บันทึกอัตโนมัติในเบราว์เซอร์นี้ • ข้อมูลไม่ซิงก์ข้ามเครื่อง • 1 ช่องเลือกได้ 1 คน</p>
+<p class="foot" id="status" role="status">บันทึกอัตโนมัติในเบราว์เซอร์นี้ • ข้อมูลไม่ซิงก์ข้ามเครื่อง • 1 ช่องเลือกได้สูงสุด 2 คน</p>
 </main>
-<dialog id="picker" aria-labelledby="dialog-title"><h2 id="dialog-title">เลือกคนทำงาน</h2><p id="slot-label"></p><div class="choices" id="choices"></div><div class="actions"><button class="nav" id="clear">ล้างช่องนี้</button><button class="nav" id="cancel">ยกเลิก</button></div></dialog>
+<dialog id="picker" aria-labelledby="dialog-title"><h2 id="dialog-title">เลือกคนทำงาน</h2><p id="slot-label"></p><p class="selection-note" id="selection-note" role="status">เลือกได้สูงสุด 2 คน · แตะชื่อซ้ำเพื่อเอาออก</p><div class="choices" id="choices"></div><div class="actions"><button class="nav save" id="save">บันทึก</button><button class="nav" id="clear">ล้างช่องนี้</button><button class="nav" id="cancel">ยกเลิก</button></div></dialog>
 <script>
 'use strict';
 const names=['ยีน','มิว','หนึ่ง','สอง'],days=['จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์','อาทิตย์'];
@@ -54,17 +55,21 @@ function key(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0'
 function add(d,n){const v=new Date(d);v.setDate(v.getDate()+n);return v;}
 function fmt(d){return d.toLocaleDateString('th-TH',{day:'numeric',month:'short',year:'numeric'});}
 function time(h){return String(h).padStart(2,'0')+':00';}
+function members(value){return [...new Set((Array.isArray(value)?value:[value]).filter(v=>Number.isInteger(v)&&v>=0&&v<names.length))].slice(0,2);}
+function refreshChoices(){const picked=selected.picked;Array.from($('choices').children).forEach((b,i)=>{const on=picked.includes(i);b.setAttribute('aria-pressed',String(on));b.textContent=(on?'✓ ':'')+names[i];b.disabled=!on&&picked.length>=2;});$('selection-note').textContent='เลือกแล้ว '+picked.length+'/2 คน · แตะชื่อซ้ำเพื่อเอาออก';}
+function toggle(i){if(!selected)return;const list=selected.picked;if(list.includes(i))selected.picked=list.filter(v=>v!==i);else if(list.length<2)list.push(i);refreshChoices();}
 function render(){
  $('date').value=key(week);$('range').textContent=fmt(week)+' – '+fmt(add(week,6));
  $('head').replaceChildren();$('body').replaceChildren();const tr=document.createElement('tr'),corner=document.createElement('th');corner.textContent='เวลา';corner.scope='col';tr.append(corner);
  for(let d=0;d<7;d++){const date=add(week,d),th=document.createElement('th');th.scope='col';th.textContent=days[d];const s=document.createElement('span');s.textContent=fmt(date);th.append(s);if(key(date)===key(new Date()))th.className='today';tr.append(th);} $('head').append(tr);
  const counts=[0,0,0,0];
  for(let h=8;h<24;h++){const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=time(h)+'–'+time(h+1);row.append(label);
-  for(let d=0;d<7;d++){const date=add(week,d),id=key(date)+'/'+h,v=data[id],valid=Number.isInteger(v)&&v>=0&&v<4,td=document.createElement('td'),btn=document.createElement('button');btn.className=valid?'p'+v:'empty';btn.textContent=valid?names[v]:'＋';btn.setAttribute('aria-label',days[d]+' '+fmt(date)+' '+label.textContent+' '+(valid?names[v]:'ว่าง เลือกคนทำงาน'));if(valid)counts[v]++;btn.onclick=()=>{selected={id,btn};$('slot-label').textContent='วัน'+days[d]+' '+fmt(date)+' · '+time(h)+'–'+time(h+1);$('picker').showModal();};td.append(btn);row.append(td);} $('body').append(row);
+  for(let d=0;d<7;d++){const date=add(week,d),id=key(date)+'/'+h,list=members(data[id]),td=document.createElement('td'),btn=document.createElement('button');btn.className=list.length===2?'pair':list.length?'p'+list[0]:'empty';if(list.length===2){list.forEach(i=>{const badge=document.createElement('span');badge.className='p'+i;badge.textContent=names[i];btn.append(badge);});}else btn.textContent=list.length?names[list[0]]:'＋';btn.setAttribute('aria-label',days[d]+' '+fmt(date)+' '+label.textContent+' '+(list.length?list.map(i=>names[i]).join(' และ '):'ว่าง เลือกคนทำงาน'));list.forEach(i=>counts[i]++);btn.onclick=()=>{selected={id,btn,picked:[...list]};$('slot-label').textContent='วัน'+days[d]+' '+fmt(date)+' · '+time(h)+'–'+time(h+1);refreshChoices();$('picker').showModal();};td.append(btn);row.append(td);} $('body').append(row);
  }
  $('legend').replaceChildren();names.forEach((name,i)=>{const s=document.createElement('span');s.className='person p'+i;s.textContent=name+' · '+counts[i]+' ชม.';$('legend').append(s);});
 }
-function assign(value){if(!selected)return;const id=selected.id;if(value===null)delete data[id];else data[id]=value;try{localStorage.setItem(storageKey,JSON.stringify(data));$('status').textContent='บันทึกแล้วในเบราว์เซอร์นี้ • ข้อมูลไม่ซิงก์ข้ามเครื่อง • 1 ช่องเลือกได้ 1 คน';}catch(e){$('status').textContent='บันทึกถาวรไม่สำเร็จ ข้อมูลจะอยู่เฉพาะขณะเปิดหน้านี้';}$('picker').close();render();const [day,h]=id.split('/');const col=Math.round((new Date(day+'T12:00:00')-week)/86400000);const row=$('body').rows[Number(h)-8];if(row&&row.cells[col+1])row.cells[col+1].querySelector('button').focus();selected=null;}
-names.forEach((name,i)=>{const b=document.createElement('button');b.textContent=name;b.className='p'+i;b.onclick=()=>assign(i);$('choices').append(b);});
+function assign(value){if(!selected)return;const id=selected.id,list=members(value);if(!list.length)delete data[id];else data[id]=list;try{localStorage.setItem(storageKey,JSON.stringify(data));$('status').textContent='บันทึกแล้วในเบราว์เซอร์นี้ • ข้อมูลไม่ซิงก์ข้ามเครื่อง • 1 ช่องเลือกได้สูงสุด 2 คน';}catch(e){$('status').textContent='บันทึกถาวรไม่สำเร็จ ข้อมูลจะอยู่เฉพาะขณะเปิดหน้านี้';}$('picker').close();render();const [day,h]=id.split('/');const col=Math.round((new Date(day+'T12:00:00')-week)/86400000);const row=$('body').rows[Number(h)-8];if(row&&row.cells[col+1])row.cells[col+1].querySelector('button').focus();selected=null;}
+names.forEach((name,i)=>{const b=document.createElement('button');b.textContent=name;b.className='p'+i;b.onclick=()=>toggle(i);$('choices').append(b);});
+$('save').onclick=()=>assign(selected.picked);
 $('clear').onclick=()=>assign(null);$('cancel').onclick=()=>$('picker').close();$('prev').onclick=()=>{week=add(week,-7);render();};$('next').onclick=()=>{week=add(week,7);render();};$('date').onchange=e=>{if(e.target.value){const d=new Date(e.target.value+'T12:00:00');if(!isNaN(d)){week=monday(d);render();}}};$('print').onclick=()=>window.print();render();
 </script></body></html>
