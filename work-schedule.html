@@ -31,25 +31,28 @@
 }
 @media print{.scroll-hint{display:none}}
 .pair{background:#edf3ee;display:flex;flex-direction:column;gap:3px;align-items:stretch;justify-content:center;padding:4px}.pair span{border-radius:4px;font-size:13px;padding:2px}.choices button[aria-pressed="true"]{outline:3px solid #246f52;outline-offset:-3px}.choices button:disabled{opacity:.35;cursor:not-allowed}.save{background:#246f52;color:white}.selection-note{font-size:14px}
-</style>
+.sync-tools{display:flex;flex-wrap:wrap;gap:8px;margin:12px 0}.sync-tools button{font-size:13px;min-height:44px}#access-code{width:100%;margin:12px 0;font-size:16px}#access-error{color:#a32424}td button:disabled{opacity:.5;cursor:wait}</style>
 </head>
 <body><main>
-<div class="eyebrow">WEEKLY WORK SCHEDULE</div>
+<div class="eyebrow">SHARED WEEKLY WORK SCHEDULE</div>
 <h1>ตารางเวลาทำงาน</h1>
-<p>จัดตารางให้ทุกคนในทีม · 08:00–24:00 · ช่องละ 1 ชั่วโมง<br>กดที่ช่องเพื่อเลือกคนทำงาน หรือเปลี่ยนชื่อที่ลงไว้</p>
+<p>จัดตารางให้ทุกคนในทีม · 08:00–24:00 · ช่องละ 1 ชั่วโมง<br>ทุกคนเห็นตารางเดียวกัน · อัปเดตอัตโนมัติทุก 5 วินาที</p>
 <div class="toolbar"><button class="nav" id="prev" aria-label="สัปดาห์ก่อนหน้า">←</button><button class="nav" id="next" aria-label="สัปดาห์ถัดไป">→</button><div class="range" id="range"></div><label for="date">เลือกสัปดาห์</label><input type="date" id="date"><button class="print" id="print">พิมพ์ตาราง</button></div>
-<div class="legend" id="legend" aria-live="polite"></div>
+<div class="sync-tools"><button class="nav" id="team-access">ใส่รหัสทีม</button><button class="nav" id="sync-now">อัปเดตตาราง</button><button class="nav" id="import-old" hidden>นำเข้าข้อมูลเดิมจากเครื่องนี้</button></div><div class="legend" id="legend" aria-live="polite"></div>
 <p class="scroll-hint" id="scroll-hint">↔ เลื่อนตารางซ้าย–ขวาเพื่อดูครบ 7 วัน · แตะช่องเพื่อเลือกชื่อ</p>
 <div class="table-wrap" tabindex="0" role="region" aria-label="ตารางรายสัปดาห์ เลื่อนเพื่อดูวันและเวลา"><table aria-label="ตารางเวลาทำงานรายสัปดาห์"><thead id="head"></thead><tbody id="body"></tbody></table></div>
-<p class="foot" id="status" role="status">บันทึกอัตโนมัติในเบราว์เซอร์นี้ • ข้อมูลไม่ซิงก์ข้ามเครื่อง • 1 ช่องเลือกได้สูงสุด 2 คน</p>
+<p class="foot" id="status" role="status">กำลังโหลดตารางกลาง…</p>
 </main>
 <dialog id="picker" aria-labelledby="dialog-title"><h2 id="dialog-title">เลือกคนทำงาน</h2><p id="slot-label"></p><p class="selection-note" id="selection-note" role="status">เลือกได้สูงสุด 2 คน · แตะชื่อซ้ำเพื่อเอาออก</p><div class="choices" id="choices"></div><div class="actions"><button class="nav save" id="save">บันทึก</button><button class="nav" id="clear">ล้างช่องนี้</button><button class="nav" id="cancel">ยกเลิก</button></div></dialog>
-<script>
+<dialog id="access-dialog" aria-labelledby="access-title"><h2 id="access-title">รหัสทีมสำหรับแก้ตาราง</h2><p>ใช้รหัสเดียวกันทั้งทีม ดูตารางได้โดยไม่ต้องใส่รหัส</p><label for="access-code">รหัสทีม</label><input id="access-code" type="password" autocomplete="off"><p id="access-error" role="status"></p><div class="actions"><button class="nav save" id="access-save">ใช้รหัสนี้</button><button class="nav" id="access-cancel">ยกเลิก</button></div></dialog><script>
 'use strict';
 const names=['ยีน','มิว','หนึ่ง','สอง'],days=['จันทร์','อังคาร','พุธ','พฤหัสบดี','ศุกร์','เสาร์','อาทิตย์'];
 const $=id=>document.getElementById(id),storageKey='thai-work-schedule-v1';
-let data={},selected=null,week=monday(new Date());
-try{const saved=JSON.parse(localStorage.getItem(storageKey)||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))data=saved;}catch(e){$('status').textContent='ไม่สามารถอ่านข้อมูลที่บันทึกได้ ข้อมูลใหม่อาจเก็บได้เฉพาะขณะเปิดหน้านี้';}
+const API='https://bewer-team-work-schedule.thestonc717.chatgpt.site/api/schedule';
+let data={},revisions={},selected=null,week=monday(new Date()),loaded=false,busy=false,reading=false,requestId=0,legacy={},teamCode='';
+try{teamCode=sessionStorage.getItem('schedule-team-code')||'';}catch{}
+
+try{const saved=JSON.parse(localStorage.getItem(storageKey)||'{}');if(saved&&typeof saved==='object'&&!Array.isArray(saved))legacy=saved;}catch{}
 function monday(d){const n=new Date(d.getFullYear(),d.getMonth(),d.getDate(),12);n.setDate(n.getDate()-(n.getDay()+6)%7);return n;}
 function key(d){return d.getFullYear()+'-'+String(d.getMonth()+1).padStart(2,'0')+'-'+String(d.getDate()).padStart(2,'0');}
 function add(d,n){const v=new Date(d);v.setDate(v.getDate()+n);return v;}
@@ -64,12 +67,53 @@ function render(){
  for(let d=0;d<7;d++){const date=add(week,d),th=document.createElement('th');th.scope='col';th.textContent=days[d];const s=document.createElement('span');s.textContent=fmt(date);th.append(s);if(key(date)===key(new Date()))th.className='today';tr.append(th);} $('head').append(tr);
  const counts=[0,0,0,0];
  for(let h=8;h<24;h++){const row=document.createElement('tr'),label=document.createElement('th');label.scope='row';label.textContent=time(h)+'–'+time(h+1);row.append(label);
-  for(let d=0;d<7;d++){const date=add(week,d),id=key(date)+'/'+h,list=members(data[id]),td=document.createElement('td'),btn=document.createElement('button');btn.className=list.length===2?'pair':list.length?'p'+list[0]:'empty';if(list.length===2){list.forEach(i=>{const badge=document.createElement('span');badge.className='p'+i;badge.textContent=names[i];btn.append(badge);});}else btn.textContent=list.length?names[list[0]]:'＋';btn.setAttribute('aria-label',days[d]+' '+fmt(date)+' '+label.textContent+' '+(list.length?list.map(i=>names[i]).join(' และ '):'ว่าง เลือกคนทำงาน'));list.forEach(i=>counts[i]++);btn.onclick=()=>{selected={id,btn,picked:[...list]};$('slot-label').textContent='วัน'+days[d]+' '+fmt(date)+' · '+time(h)+'–'+time(h+1);refreshChoices();$('picker').showModal();};td.append(btn);row.append(td);} $('body').append(row);
+  for(let d=0;d<7;d++){const date=add(week,d),id=key(date)+'/'+h,list=members(data[id]),td=document.createElement('td'),btn=document.createElement('button');btn.disabled=!loaded||busy;btn.className=list.length===2?'pair':list.length?'p'+list[0]:'empty';if(list.length===2){list.forEach(i=>{const badge=document.createElement('span');badge.className='p'+i;badge.textContent=names[i];btn.append(badge);});}else btn.textContent=list.length?names[list[0]]:'＋';btn.setAttribute('aria-label',days[d]+' '+fmt(date)+' '+label.textContent+' '+(list.length?list.map(i=>names[i]).join(' และ '):'ว่าง เลือกคนทำงาน'));list.forEach(i=>counts[i]++);btn.onclick=()=>{selected={id,btn,picked:[...list],revision:revisions[id]||0};$('slot-label').textContent='วัน'+days[d]+' '+fmt(date)+' · '+time(h)+'–'+time(h+1);refreshChoices();$('picker').showModal();};td.append(btn);row.append(td);} $('body').append(row);
  }
  $('legend').replaceChildren();names.forEach((name,i)=>{const s=document.createElement('span');s.className='person p'+i;s.textContent=name+' · '+counts[i]+' ชม.';$('legend').append(s);});
 }
-function assign(value){if(!selected)return;const id=selected.id,list=members(value);if(!list.length)delete data[id];else data[id]=list;try{localStorage.setItem(storageKey,JSON.stringify(data));$('status').textContent='บันทึกแล้วในเบราว์เซอร์นี้ • ข้อมูลไม่ซิงก์ข้ามเครื่อง • 1 ช่องเลือกได้สูงสุด 2 คน';}catch(e){$('status').textContent='บันทึกถาวรไม่สำเร็จ ข้อมูลจะอยู่เฉพาะขณะเปิดหน้านี้';}$('picker').close();render();const [day,h]=id.split('/');const col=Math.round((new Date(day+'T12:00:00')-week)/86400000);const row=$('body').rows[Number(h)-8];if(row&&row.cells[col+1])row.cells[col+1].querySelector('button').focus();selected=null;}
+function setStatus(text){$('status').textContent=text;}
+function hasCode(){if(teamCode)return true;$('access-dialog').showModal();return false;}
+async function readWeek(force=false){
+ if(busy||reading&&!force)return;const token=++requestId,start=key(week);reading=true;
+ try{const res=await fetch(API+'?week='+start,{cache:'no-store'});if(!res.ok)throw Error();const result=await res.json();if(token!==requestId||start!==key(week))return;
+ const next={},rev={};for(const [id,slot] of Object.entries(result.slots)){next[id]=members(slot.people);rev[id]=slot.revision;}data=next;revisions=rev;loaded=true;if(!$('picker').open)render();
+ setStatus('เชื่อมต่อตารางกลางแล้ว • อัปเดต '+new Date().toLocaleTimeString('th-TH')+' • สูงสุดช่องละ 2 คน');
+ }catch{if(token===requestId){loaded=false;render();setStatus('เชื่อมต่อตารางกลางไม่ได้ กรุณาตรวจสอบอินเทอร์เน็ตแล้วกดอัปเดตตาราง');}}finally{if(token===requestId)reading=false;}
+}
+async function postSlot(id,people,revision){
+ const res=await fetch(API,{method:'POST',headers:{'Content-Type':'application/json',Authorization:'Bearer '+teamCode},body:JSON.stringify({id,people,revision})});
+ if(res.status===401){teamCode='';try{sessionStorage.removeItem('schedule-team-code')}catch{}throw Error('รหัสทีมไม่ถูกต้อง กรุณาใส่รหัสอีกครั้ง');}
+ if(res.status===409)throw Error('มีคนแก้ช่องนี้แล้ว กรุณาเปิดช่องอีกครั้งเพื่อดูข้อมูลล่าสุด');
+ if(!res.ok)throw Error('บันทึกไม่สำเร็จ กรุณาลองใหม่');return res.json();
+}
+async function assign(value){
+ if(!selected||busy)return;if(!loaded){$('selection-note').textContent='ยังไม่เชื่อมต่อตารางกลาง กรุณาปิดแล้วกดอัปเดตตาราง';return;}if(!hasCode())return;
+ const choice=selected;busy=true;++requestId;reading=false;$('save').disabled=true;$('clear').disabled=true;$('cancel').disabled=true;
+ try{await postSlot(choice.id,members(value),choice.revision);$('picker').close();selected=null;setStatus('บันทึกลงตารางกลางแล้ว');}
+ catch(e){$('selection-note').textContent=e.message;setStatus(e.message);}
+ finally{busy=false;$('save').disabled=false;$('clear').disabled=false;$('cancel').disabled=false;await readWeek(true);}
+}
+async function importOld(){
+ if(busy||!hasCode())return;
+ if(!confirm('นำเข้าข้อมูลเดิมจากเครื่องนี้ลงตารางกลาง? ระบบจะรวมชื่อเฉพาะช่องที่ยังไม่เต็ม และไม่เขียนทับข้อมูลของคนอื่น'))return;
+ busy=true;++requestId;reading=false;$('import-old').disabled=true;render();let imported=0,skipped=0;
+ try{
+ const groups=new Map();for(const [id,value]of Object.entries(legacy)){if(!/^\d{4}-\d{2}-\d{2}\/(?:[89]|1\d|2[0-3])$/.test(id))continue;const d=new Date(id.split('/')[0]+'T12:00:00');if(isNaN(d))continue;const start=key(monday(d));if(!groups.has(start))groups.set(start,[]);groups.get(start).push([id,members(value)]);}
+ for(const [start,items]of groups){const res=await fetch(API+'?week='+start,{cache:'no-store'});if(!res.ok)throw Error('โหลดข้อมูลกลางไม่สำเร็จ');const current=(await res.json()).slots;
+ for(const [id,people]of items){if(!people.length)continue;const existing=current[id]||{people:[],revision:0};const union=[...new Set([...existing.people,...people])];if(union.length>2){skipped++;continue;}if(union.length===existing.people.length){continue;}
+ try{await postSlot(id,union,existing.revision);imported++;}catch(e){if(e.message.startsWith('มีคนแก้'))skipped++;else throw e;}
+ }}
+ alert('นำเข้าแล้ว '+imported+' ช่อง · ข้าม '+skipped+' ช่องที่เต็มหรือมีคนแก้พร้อมกัน ข้อมูลเดิมยังอยู่ในเครื่อง');
+ }catch(e){alert('นำเข้าแล้ว '+imported+' ช่องก่อนหยุด: '+e.message+' สามารถลองนำเข้าซ้ำได้');}
+ finally{busy=false;$('import-old').disabled=false;await readWeek(true);}
+}
+function changeWeek(d){if(busy)return;week=monday(d);loaded=false;data={};revisions={};render();readWeek(true);}
 names.forEach((name,i)=>{const b=document.createElement('button');b.textContent=name;b.className='p'+i;b.onclick=()=>toggle(i);$('choices').append(b);});
 $('save').onclick=()=>assign(selected.picked);
-$('clear').onclick=()=>assign(null);$('cancel').onclick=()=>$('picker').close();$('prev').onclick=()=>{week=add(week,-7);render();};$('next').onclick=()=>{week=add(week,7);render();};$('date').onchange=e=>{if(e.target.value){const d=new Date(e.target.value+'T12:00:00');if(!isNaN(d)){week=monday(d);render();}}};$('print').onclick=()=>window.print();render();
+$('clear').onclick=()=>assign(null);$('cancel').onclick=()=>$('picker').close();$('prev').onclick=()=>changeWeek(add(week,-7));$('next').onclick=()=>changeWeek(add(week,7));$('date').onchange=e=>{if(e.target.value){const d=new Date(e.target.value+'T12:00:00');if(!isNaN(d)){changeWeek(d);}}};$('print').onclick=()=>window.print();
+$('team-access').onclick=()=>$('access-dialog').showModal();$('sync-now').onclick=()=>readWeek(true);
+$('access-save').onclick=()=>{const code=$('access-code').value.trim();if(!code){$('access-error').textContent='กรุณาใส่รหัสทีม';return;}teamCode=code;try{sessionStorage.setItem('schedule-team-code',code)}catch{}$('access-code').value='';$('access-error').textContent='';$('access-dialog').close();$('team-access').textContent='เปลี่ยนรหัสทีม';};
+$('access-cancel').onclick=()=>$('access-dialog').close();$('import-old').hidden=!Object.values(legacy).some(v=>members(v).length);$('import-old').onclick=importOld;
+$('picker').addEventListener('cancel',e=>{if(busy)e.preventDefault()});$('picker').addEventListener('close',()=>{if(!busy)render()});
+render();readWeek();setInterval(()=>{if(!document.hidden&&!$('picker').open)readWeek()},5000);window.addEventListener('focus',()=>readWeek(true));document.addEventListener('visibilitychange',()=>{if(!document.hidden)readWeek(true)});
 </script></body></html>
